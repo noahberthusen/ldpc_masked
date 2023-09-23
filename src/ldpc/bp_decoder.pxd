@@ -14,6 +14,7 @@ cdef class bp_decoder:
     cdef int m, n
     cdef char* error
     cdef char* synd
+    cdef char* mask
     cdef char* bp_decoding_synd
     cdef char* bp_decoding
     cdef char* received_codeword
@@ -29,7 +30,7 @@ cdef class bp_decoder:
     cdef int MEM_ALLOCATED
     cdef int input_vector_type
 
-    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector)
+    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector, mask)
 
     cdef char* bp_decode_cy(self)
 

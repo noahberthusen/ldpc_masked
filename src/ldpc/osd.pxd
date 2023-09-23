@@ -10,7 +10,7 @@ from ldpc.bp_decoder cimport bp_decoder
 cdef extern from "mod2sparse_extra.h":
     cdef void mod2sparse_print_terminal (mod2sparse *A)
     cdef int mod2sparse_rank(mod2sparse *A)
-    
+
     cdef void LU_forward_backward_solve(
         mod2sparse *L,
         mod2sparse *U,
@@ -35,8 +35,9 @@ cdef class bposd_decoder(bp_decoder):
     cdef int osd_order
     cdef int osd_method
     cdef int rank
+    cdef int mask_weight
     cdef int k
-    cdef int* rows
+    #cdef int* rows
     cdef int* cols
     cdef int* orig_cols
     cdef int* Ht_cols
@@ -47,4 +48,4 @@ cdef class bposd_decoder(bp_decoder):
     cdef void osd_e_setup(self)
     cdef void osd_cs_setup(self)
     cdef int osd(self)
-    cdef char* decode_cy(self, char* syndrome)
+    cdef char* decode_cy(self, char* syndrome, char* mask)

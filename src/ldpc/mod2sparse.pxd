@@ -6,7 +6,7 @@ cimport numpy as np
 from ldpc.c_util cimport numpy2double,numpy2char,char2numpy,double2numpy
 
 cdef extern from "mod2sparse.h":
-    
+
     ctypedef struct mod2entry:
         int row, col, sgn
         double check_to_bit, bit_to_check
@@ -25,6 +25,7 @@ cdef extern from "mod2sparse.h":
     cdef void mod2sparse_free(mod2sparse *m)
     cdef void mod2sparse_mulvec(mod2sparse *m, char *a, char *b)
     cdef void mod2sparse_copycols(mod2sparse *A, mod2sparse *B, int *cols)
+    cdef void mod2sparse_copyrows(mod2sparse *A, mod2sparse *B, int *rows)
 
     cdef mod2entry* mod2sparse_first_in_row(mod2sparse *m, int i)
     cdef mod2entry* mod2sparse_first_in_col(mod2sparse *m, int j)
@@ -44,7 +45,7 @@ cdef extern from "mod2sparse.h":
 cdef extern from "mod2sparse_extra.h":
     cdef void mod2sparse_print_terminal (mod2sparse *A)
     cdef int mod2sparse_rank(mod2sparse *A)
-    
+
     cdef void LU_forward_backward_solve(
         mod2sparse *L,
         mod2sparse *U,

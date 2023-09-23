@@ -103,6 +103,7 @@ cdef class bp_decoder:
         assert self.m==self.H.n_rows #validate number of checks in mod2sparse format
         self.error=<char*>calloc(self.n,sizeof(char)) #error string
         self.synd=<char*>calloc(self.m,sizeof(char)) #syndrome string
+        self.mask=<char*>calloc(self.m,sizeof(char)) #mask string
         self.received_codeword=<char*>calloc(self.n,sizeof(char)) #received codeword
         self.bp_decoding_synd=<char*>calloc(self.m,sizeof(char)) #decoded syndrome string
         self.bp_decoding=<char*>calloc(self.n,sizeof(char)) #BP decoding
@@ -119,7 +120,7 @@ cdef class bp_decoder:
             for j in range(self.n): self.channel_probs[j]=error_rate
             self.error_rate=error_rate
 
-    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector):
+    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector, mask):
 
         """
         Runs the BP decoder for a given input_vector.
@@ -149,7 +150,7 @@ cdef class bp_decoder:
                 self.received_codeword=numpy2char(input_vector,self.received_codeword)
             else:
                 raise ValueError("The input to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
-            
+
             mod2sparse_mulvec(self.H,self.received_codeword,self.synd)
             self.bp_decode_cy()
             for i in range(self.n):
@@ -163,11 +164,17 @@ cdef class bp_decoder:
                 self.synd=numpy2char(input_vector,self.synd)
             else:
                 raise ValueError("The input to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
+            if isinstance(mask,spmatrix):
+                self.mask=spmatrix2char(mask,self.mask)
+            elif isinstance(mask,np.ndarray):
+                self.mask=numpy2char(mask,self.mask)
+            else:
+                raise ValueError("The mask for ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
             self.bp_decode_cy()
-        
+
         else:
             raise ValueError(f"The input to the ldpc.bp_decoder.decode must be either a received codeword (of length={self.n}) or a syndrome (of length={self.m}). The inputted vector has length={input_length}. Valid formats are `np.ndarray` or `scipy.sparse.spmatrix`.")
-        
+
         return char2numpy(self.bp_decoding,self.n)
 
 
@@ -243,55 +250,66 @@ cdef class bp_decoder:
 
                 for i in range(self.m):
 
-                    e=mod2sparse_first_in_row(self.H,i)
-                    temp=((-1)**self.synd[i])
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit=temp
-                        temp*=2/(1+e.bit_to_check) - 1
-                        e=mod2sparse_next_in_row(e)
+                    if self.mask[i]:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit = 0
+                            e=mod2sparse_next_in_row(e)
+                    else:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        temp=((-1)**self.synd[i])
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit=temp
+                            temp*=2/(1+e.bit_to_check) - 1
+                            e=mod2sparse_next_in_row(e)
 
-                    e=mod2sparse_last_in_row(self.H,i)
-                    temp=1.0
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit*=temp
-                        e.check_to_bit=(1-e.check_to_bit)/(1+e.check_to_bit)
-                        temp*=2/(1+e.bit_to_check) - 1
-                        e=mod2sparse_prev_in_row(e)
+                        e=mod2sparse_last_in_row(self.H,i)
+                        temp=1.0
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit*=temp
+                            e.check_to_bit=(1-e.check_to_bit)/(1+e.check_to_bit)
+                            temp*=2/(1+e.bit_to_check) - 1
+                            e=mod2sparse_prev_in_row(e)
 
             #min-sum updates
             elif self.bp_method==1:
                 for i in range(self.m):
 
-                    e=mod2sparse_first_in_row(self.H,i)
-                    temp=1e308
+                    if self.mask[i]:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit = 0
+                            e=mod2sparse_next_in_row(e)
+                    else:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        temp=1e308
 
-                    if self.synd[i]==1: sgn=1
-                    else: sgn=0
+                        if self.synd[i]==1: sgn=1
+                        else: sgn=0
 
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit=temp
-                        e.sgn=sgn
-                        if abs(abs(e.bit_to_check)-1)<temp:
-                            temp=abs(e.bit_to_check)
-                        if e.bit_to_check >=1: sgn+=1
-                        e=mod2sparse_next_in_row(e)
-
-                    e=mod2sparse_last_in_row(self.H,i)
-                    temp=1e308
-                    sgn=0
-                    while not mod2sparse_at_end(e):
-                        if temp < e.check_to_bit:
+                        while not mod2sparse_at_end(e):
                             e.check_to_bit=temp
-                        e.sgn+=sgn
+                            e.sgn=sgn
+                            if abs(abs(e.bit_to_check)-1)<temp:
+                                temp=abs(e.bit_to_check)
+                            if e.bit_to_check >=1: sgn+=1
+                            e=mod2sparse_next_in_row(e)
 
-                        e.check_to_bit=e.check_to_bit**(((-1)**e.sgn)*alpha)
+                        e=mod2sparse_last_in_row(self.H,i)
+                        temp=1e308
+                        sgn=0
+                        while not mod2sparse_at_end(e):
+                            if temp < e.check_to_bit:
+                                e.check_to_bit=temp
+                            e.sgn+=sgn
 
-                        if abs(e.bit_to_check)<temp:
-                            temp=abs(e.bit_to_check)
-                        if e.bit_to_check >=1: sgn+=1
+                            e.check_to_bit=e.check_to_bit**(((-1)**e.sgn)*alpha)
 
+                            if abs(e.bit_to_check)<temp:
+                                temp=abs(e.bit_to_check)
+                            if e.bit_to_check >=1: sgn+=1
 
-                        e=mod2sparse_prev_in_row(e)
+                            e=mod2sparse_prev_in_row(e)
 
             # bit-to-check messages
             for j in range(self.n):
@@ -326,7 +344,7 @@ cdef class bp_decoder:
 
             equal=1
             for check in range(self.m):
-                if self.synd[check]!=self.bp_decoding_synd[check]:
+                if (self.synd[check]!=self.bp_decoding_synd[check]) and (not self.mask[check]):
                     equal=0
                     break
             if equal==1:
@@ -366,21 +384,26 @@ cdef class bp_decoder:
             if self.bp_method==2:
 
                 for i in range(self.m):
+                    if self.mask[i]:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit = 0
+                            e=mod2sparse_next_in_row(e)
+                    else:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        temp=1.0
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit=temp
+                            temp*=tanh(e.bit_to_check/2)
+                            e=mod2sparse_next_in_row(e)
 
-                    e=mod2sparse_first_in_row(self.H,i)
-                    temp=1.0
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit=temp
-                        temp*=tanh(e.bit_to_check/2)
-                        e=mod2sparse_next_in_row(e)
-
-                    e=mod2sparse_last_in_row(self.H,i)
-                    temp=1.0
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit*=temp
-                        e.check_to_bit=((-1)**self.synd[i])*log((1+e.check_to_bit)/(1-e.check_to_bit))
-                        temp*=tanh(e.bit_to_check/2)
-                        e=mod2sparse_prev_in_row(e)
+                        e=mod2sparse_last_in_row(self.H,i)
+                        temp=1.0
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit*=temp
+                            e.check_to_bit=((-1)**self.synd[i])*log((1+e.check_to_bit)/(1-e.check_to_bit))
+                            temp*=tanh(e.bit_to_check/2)
+                            e=mod2sparse_prev_in_row(e)
 
             #min-sum check to bit messages
             if self.bp_method==3:
@@ -391,36 +414,41 @@ cdef class bp_decoder:
 
                 for i in range(self.m):
 
-                    e=mod2sparse_first_in_row(self.H,i)
-                    temp=1e308
+                    if self.mask[i]:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        while not mod2sparse_at_end(e):
+                            e.check_to_bit = 0
+                            e=mod2sparse_next_in_row(e)
+                    else:
+                        e=mod2sparse_first_in_row(self.H,i)
+                        temp=1e308
 
-                    if self.synd[i]==1: sgn=1
-                    else: sgn=0
+                        if self.synd[i]==1: sgn=1
+                        else: sgn=0
 
-                    while not mod2sparse_at_end(e):
-                        e.check_to_bit=temp
-                        e.sgn=sgn
-                        if abs(e.bit_to_check)<temp:
-                            temp=abs(e.bit_to_check)
-                        if e.bit_to_check <=0: sgn+=1
-                        e=mod2sparse_next_in_row(e)
-
-                    e=mod2sparse_last_in_row(self.H,i)
-                    temp=1e308
-                    sgn=0
-                    while not mod2sparse_at_end(e):
-                        if temp < e.check_to_bit:
+                        while not mod2sparse_at_end(e):
                             e.check_to_bit=temp
-                        e.sgn+=sgn
+                            e.sgn=sgn
+                            if abs(e.bit_to_check)<temp:
+                                temp=abs(e.bit_to_check)
+                            if e.bit_to_check <=0: sgn+=1
+                            e=mod2sparse_next_in_row(e)
 
-                        e.check_to_bit*=((-1)**e.sgn)*alpha
+                        e=mod2sparse_last_in_row(self.H,i)
+                        temp=1e308
+                        sgn=0
+                        while not mod2sparse_at_end(e):
+                            if temp < e.check_to_bit:
+                                e.check_to_bit=temp
+                            e.sgn+=sgn
 
-                        if abs(e.bit_to_check)<temp:
-                            temp=abs(e.bit_to_check)
-                        if e.bit_to_check <=0: sgn+=1
+                            e.check_to_bit*=((-1)**e.sgn)*alpha
 
+                            if abs(e.bit_to_check)<temp:
+                                temp=abs(e.bit_to_check)
+                            if e.bit_to_check <=0: sgn+=1
 
-                        e=mod2sparse_prev_in_row(e)
+                            e=mod2sparse_prev_in_row(e)
 
             # bit-to-check messages
             for j in range(self.n):
@@ -451,7 +479,7 @@ cdef class bp_decoder:
 
             equal=1
             for check in range(self.m):
-                if self.synd[check]!=self.bp_decoding_synd[check]:
+                if (self.synd[check]!=self.bp_decoding_synd[check]) and (not self.mask[check]):
                     equal=0
                     break
             if equal==1:

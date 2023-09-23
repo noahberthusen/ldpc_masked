@@ -31,7 +31,7 @@ cdef class bposd_decoder(bp_decoder):
         3) "osd_cs": combination-sweep OSD.
 
     '''
-    
+
     def __cinit__(self,parity_check_matrix,**kwargs):
 
         #OSD specific input parameters
@@ -65,7 +65,7 @@ cdef class bposd_decoder(bp_decoder):
         self.osd_method=int(osd_method)
 
         self.encoding_input_count=0
-        
+
         if self.osd_order>-1:
             self.rank=mod2sparse_rank(self.H)
             try:
@@ -73,16 +73,16 @@ cdef class bposd_decoder(bp_decoder):
             except AssertionError:
                 self.osd_order=-1
                 raise ValueError(f"For this code, the OSD order should be set in the range 0<=osd_oder<={self.n - self.rank}.")
-            self.cols=<int*>calloc(self.n,sizeof(int)) 
+            self.cols=<int*>calloc(self.n,sizeof(int))
             self.orig_cols=<int*>calloc(self.n,sizeof(int))
-            self.rows=<int*>calloc(self.m,sizeof(int))
+            #self.rows=<int*>calloc(self.m,sizeof(int))
             self.k=self.n-self.rank
 
         if self.osd_order>0:
             self.y=<char*>calloc(self.n,sizeof(char))
             self.g=<char*>calloc(self.m,sizeof(char))
             self.Htx=<char*>calloc(self.m,sizeof(char))
-            self.Ht_cols=<int*>calloc(self.k,sizeof(int)) 
+            self.Ht_cols=<int*>calloc(self.k,sizeof(int))
 
         if osd_order==0: pass
         elif self.osd_order>0 and self.osd_method==1: self.osd_e_setup()
@@ -107,7 +107,7 @@ cdef class bposd_decoder(bp_decoder):
 
 
         self.encoding_input_count=kset_size+nCr(self.osd_order,2)
-        
+
         self.osdw_encoding_inputs=<char**>calloc(self.encoding_input_count,sizeof(char*))
         cdef int total_count=0
         for i in range(kset_size):
@@ -126,16 +126,15 @@ cdef class bposd_decoder(bp_decoder):
         assert total_count==self.encoding_input_count
 
 
-    cdef char* decode_cy(self, char* syndrome):
+    cdef char* decode_cy(self, char* syndrome, char* mask):
 
         self.synd=syndrome
+        self.mask=mask
 
-        # print(char2numpy(self.synd,self.m))
+        self.mask_weight = 0;
+        for j in range(self.m): self.mask_weight += mask[j]
 
         self.bp_decode_cy()
-
-        # print(double2numpy(self.log_prob_ratios,self.n))
-
 
         if self.osd_order==-1: return self.bp_decoding
 
@@ -153,8 +152,8 @@ cdef class bposd_decoder(bp_decoder):
         else:
             return self.osdw_decoding
 
-    
-    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector):
+
+    cpdef np.ndarray[np.int_t, ndim=1] decode(self, input_vector, mask):
 
         """
         Runs the BP+OSD decoder for a given syndrome.
@@ -181,25 +180,49 @@ cdef class bposd_decoder(bp_decoder):
                 self.synd=numpy2char(input_vector,self.synd)
             else:
                 raise ValueError("The input to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
-            
-            self.decode_cy(self.synd)
-        
+            if isinstance(mask,spmatrix):
+                self.mask=spmatrix2char(mask,self.mask)
+            elif isinstance(mask,np.ndarray):
+                self.mask=numpy2char(mask,self.mask)
+            else:
+                raise ValueError("The mask to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
+
+            self.decode_cy(self.synd,self.mask)
+
         else:
             raise ValueError(f"The input to the ldpc.bp_decoder.decode must be a syndrome (of length={self.m}). The inputted vector has length={input_length}. Valid formats are `np.ndarray` or `scipy.sparse.spmatrix`.")
-        
+
         if self.osd_order==-1: return char2numpy(self.bp_decoding,self.n)
         else: return char2numpy(self.osdw_decoding,self.n)
 
     #OSD Post-processing
     cdef int osd(self):
-        cdef int i, j
+        cdef int i, j, counter, rank
         cdef long int l
         cdef mod2sparse *L
         cdef mod2sparse *U
 
-        #allocating L and U matrices 
-        L=mod2sparse_allocate(self.m,self.rank)
-        U=mod2sparse_allocate(self.rank,self.n)
+        #allocating reduced parity check matrix
+        cdef mod2sparse* Hm=mod2sparse_allocate(self.m-self.mask_weight,self.n)
+        cdef int* Hm_rows=<int*>calloc(self.m-self.mask_weight,sizeof(int))
+        cdef char* Hm_synd=<char*>calloc(self.m-self.mask_weight,sizeof(char))
+
+        counter = 0
+        for i in range(self.m):
+            if not self.mask[i]:
+                Hm_rows[counter] = i
+                Hm_synd[counter] = self.synd[i]
+                counter+=1
+
+        cdef int* rows=<int*>calloc(self.m-self.mask_weight,sizeof(int))
+
+        mod2sparse_copyrows(self.H,Hm,Hm_rows)
+        rank=mod2sparse_rank(Hm)
+
+
+        #allocating L and U matrices
+        L=mod2sparse_allocate(self.m-self.mask_weight,rank)
+        U=mod2sparse_allocate(rank,self.n)
 
         #sort the columns on the basis of the soft decisions
         soft_decision_col_sort(self.log_prob_ratios,self.cols, self.n)
@@ -210,11 +233,11 @@ cdef class bposd_decoder(bp_decoder):
 
         #find the LU decomposition of the ordered matrix
         mod2sparse_decomp_osd(
-            self.H,
-            self.rank,
+            Hm,
+            rank,
             L,
             U,
-            self.rows,
+            rows,
             self.cols)
 
 
@@ -222,20 +245,24 @@ cdef class bposd_decoder(bp_decoder):
         LU_forward_backward_solve(
             L,
             U,
-            self.rows,
+            rows,
             self.cols,
-            self.synd,
+            Hm_synd,
             self.osd0_decoding)
 
 
         if self.osd_order==0:
             mod2sparse_free(U)
             mod2sparse_free(L)
+            mod2sparse_free(Hm)
+            free(Hm_rows)
+            free(Hm_synd)
+            free(rows)
             return 1
 
 
         #return the columns outside of the information set to their orginal ordering (the LU decomp scrambles them)
-        cdef int check, counter, in_pivot
+        cdef int check, in_pivot
         cdef mod2sparse* Ht=mod2sparse_allocate(self.m,self.k)
 
         counter=0
@@ -247,7 +274,7 @@ cdef class bposd_decoder(bp_decoder):
                 if self.cols[j]==check:
                     in_pivot=1
                     break
-            
+
             if in_pivot==0:
                 self.cols[counter+self.rank]=check
                 counter+=1
@@ -264,8 +291,6 @@ cdef class bposd_decoder(bp_decoder):
 
         cdef double osd_min_weight=0
         for i in range(self.n):
-            # osd_min_weight+=self.osd0_decoding[i]*log(1/self.channel_probs[i])
-            # osd_min_weight+=self.osd0_decoding[i]
             if self.osd0_decoding[i]==1:
                 osd_min_weight+=log(1/self.channel_probs[i])
 
@@ -287,7 +312,7 @@ cdef class bposd_decoder(bp_decoder):
             LU_forward_backward_solve(
                 L,
                 U,
-                self.rows,
+                rows,
                 self.cols,
                 self.g,
                 self.y)
@@ -297,8 +322,6 @@ cdef class bposd_decoder(bp_decoder):
 
             solution_weight=0.0
             for i in range(self.n):
-                # solution_weight+=self.y[i]*log(1/self.channel_probs[i])
-                # solution_weight+=self.y[i]
                 if self.y[i]==1:
                     solution_weight+=log(1/self.channel_probs[i])
 
@@ -310,6 +333,9 @@ cdef class bposd_decoder(bp_decoder):
         mod2sparse_free(Ht)
         mod2sparse_free(U)
         mod2sparse_free(L)
+        mod2sparse_free(Hm)
+        free(Hm_rows)
+        free(rows)
         return 1
 
 
@@ -317,7 +343,7 @@ cdef class bposd_decoder(bp_decoder):
     def osd_method(self):
         """
         Getter. Returns the OSD method.
-        
+
         Returns
         -------
         str
@@ -326,12 +352,12 @@ cdef class bposd_decoder(bp_decoder):
         if self.osd_method==0: return "osd_0"
         if self.osd_method==1: return "osd_e"
         if self.osd_method==2: return "osd_cs"
-    
+
     @property
     def osd_order(self):
         """
         Getter. Returns the OSD order.
-        
+
         Returns
         -------
         int
@@ -342,35 +368,35 @@ cdef class bposd_decoder(bp_decoder):
     def osdw_decoding(self):
         """
         Getter. Returns the recovery vector from the last round of BP+OSDW decoding.
-        
+
         Returns
         -------
         numpy.ndarray
-        """        
+        """
         return char2numpy(self.osdw_decoding,self.n)
 
     @property
     def osd0_decoding(self):
         """
         Getter. Returns the recovery vector from the last round of BP+OSD0 decoding.
-        
+
         Returns
         -------
         numpy.ndarray
-        """        
+        """
         return char2numpy(self.osd0_decoding,self.n)
 
 
     def __dealloc__(self):
-        
+
         if self.MEM_ALLOCATED==True:
-    
+
             free(self.osd0_decoding)
             free(self.osdw_decoding)
 
             if self.osd_order>-1:
                 free(self.cols)
-                free(self.rows)
+                #free(self.rows)
                 free(self.orig_cols)
 
             if self.osd_order>0:
@@ -382,8 +408,6 @@ cdef class bposd_decoder(bp_decoder):
             if self.encoding_input_count!=0:
                 for i in range(self.encoding_input_count):
                     free(self.osdw_encoding_inputs[i])
-
-
 
 
 
