@@ -1,6 +1,6 @@
 import numpy as np
 from itertools import combinations
-from ldpc.mod2 import reduced_row_echelon, nullspace, row_span, rank
+from ldpc_masked.mod2 import reduced_row_echelon, nullspace, row_span, rank
 from scipy.special import comb as nCr
 
 
@@ -293,8 +293,8 @@ def get_ldpc_params(H):
 if __name__ == "__main__":
     import doctest
     # doctest.testmod(verbose=True)
-    from ldpc.mod2 import nullspace
-    from ldpc.codes import hamming_code
+    from ldpc_masked.mod2 import nullspace
+    from ldpc_masked.codes import hamming_code
 
     H=np.array([[0, 0, 0, 1, 1, 1, 1],[0, 1, 1, 0, 0, 1, 1],[1, 0, 1, 0, 1, 0, 1]])
 

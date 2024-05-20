@@ -3,9 +3,9 @@ cimport numpy as np
 cimport cython
 from libc.stdlib cimport malloc, calloc, free
 from libc.math cimport log, tanh, isnan, abs
-from ldpc.mod2sparse cimport *
-from ldpc.c_util cimport *
-from ldpc.bp_decoder cimport bp_decoder
+from ldpc_masked.mod2sparse cimport *
+from ldpc_masked.c_util cimport *
+from ldpc_masked.bp_decoder cimport bp_decoder
 
 cdef extern from "mod2sparse_extra.h":
     cdef void mod2sparse_print_terminal (mod2sparse *A)

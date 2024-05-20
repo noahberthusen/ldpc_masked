@@ -1,6 +1,6 @@
 import numpy as np
-from ldpc.codes import rep_code
-from ldpc.bp_decode_sim import classical_decode_sim
+from ldpc_masked.codes import rep_code
+from ldpc_masked.bp_decode_sim import classical_decode_sim
 
 d=500
 

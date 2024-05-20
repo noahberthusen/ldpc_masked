@@ -1,5 +1,5 @@
 import numpy as np
-from ldpc.mod2 import mod10_to_mod2
+from ldpc_masked.mod2 import mod10_to_mod2
 
 
 def hamming_code(rank):

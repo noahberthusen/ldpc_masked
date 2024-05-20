@@ -16,12 +16,12 @@
 
 import os
 import sys
-import ldpc
+import ldpc_masked
 import shutil
 
 try: shutil.rmtree('../build')
 except FileNotFoundError: pass
-sys.path.insert(0, ldpc.get_include())
+sys.path.insert(0, ldpc_masked.get_include())
 
 # -- Project information -----------------------------------------------------
 
@@ -30,7 +30,7 @@ copyright = '2022, Joschka Roffe'
 author = 'Joschka Roffe'
 
 # The full version, including alpha/beta/rc tags
-release = ldpc.__version__
+release = ldpc_masked.__version__
 version=release
 
 

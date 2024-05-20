@@ -1,6 +1,6 @@
 #cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True, embedsignature=True
 import numpy as np
-from ldpc.bp_decoder import bp_decoder
+from ldpc_masked.bp_decoder import bp_decoder
 from scipy.sparse import spmatrix
 from scipy.special import comb as nCr
 
@@ -94,7 +94,7 @@ cdef class bposd_decoder(bp_decoder):
 
     cdef void osd_e_setup(self):
 
-        self.encoding_input_count=2**self.osd_order
+        self.encoding_input_count=<long>2**self.osd_order
         self.osdw_encoding_inputs=<char**>calloc(self.encoding_input_count,sizeof(char*))
         for i in range(self.encoding_input_count):
             self.osdw_encoding_inputs[i] = decimal_to_binary_reverse(i, self.n - self.rank)
@@ -131,7 +131,7 @@ cdef class bposd_decoder(bp_decoder):
         self.synd=syndrome
         self.mask=mask
 
-        self.mask_weight = 0;
+        self.mask_weight = 0
         for j in range(self.m): self.mask_weight += mask[j]
 
         self.bp_decode_cy()
@@ -179,18 +179,18 @@ cdef class bposd_decoder(bp_decoder):
             elif isinstance(input_vector,np.ndarray):
                 self.synd=numpy2char(input_vector,self.synd)
             else:
-                raise ValueError("The input to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
+                raise ValueError("The input to ldpc_masked.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
             if isinstance(mask,spmatrix):
                 self.mask=spmatrix2char(mask,self.mask)
             elif isinstance(mask,np.ndarray):
                 self.mask=numpy2char(mask,self.mask)
             else:
-                raise ValueError("The mask to ldpc.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
+                raise ValueError("The mask to ldpc_masked.decode must either be of type `np.ndarray` or `scipy.sparse.spmatrix`.")
 
             self.decode_cy(self.synd,self.mask)
 
         else:
-            raise ValueError(f"The input to the ldpc.bp_decoder.decode must be a syndrome (of length={self.m}). The inputted vector has length={input_length}. Valid formats are `np.ndarray` or `scipy.sparse.spmatrix`.")
+            raise ValueError(f"The input to the ldpc_masked.bp_decoder.decode must be a syndrome (of length={self.m}). The inputted vector has length={input_length}. Valid formats are `np.ndarray` or `scipy.sparse.spmatrix`.")
 
         if self.osd_order==-1: return char2numpy(self.bp_decoding,self.n)
         else: return char2numpy(self.osdw_decoding,self.n)

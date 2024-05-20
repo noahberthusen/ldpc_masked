@@ -430,9 +430,9 @@ if __name__ == "__main__":
     import doctest
     doctest.testmod(verbose=True)
 
-    from ldpc.mod2 import rank, row_echelon,reduced_row_echelon,row_span, nullspace
-    from ldpc.codes import ring_code,hamming_code
-    from ldpc.code_util import codewords
+    from ldpc_masked.mod2 import rank, row_echelon,reduced_row_echelon,row_span, nullspace
+    from ldpc_masked.codes import ring_code,hamming_code
+    from ldpc_masked.code_util import codewords
 
     # H=ring_code(3)
     # H=hamming_code(3)

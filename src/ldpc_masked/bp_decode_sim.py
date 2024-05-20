@@ -4,7 +4,7 @@ import json
 import time
 import datetime
 
-from ldpc import bp_decoder
+from ldpc_masked import bp_decoder
 from .mod2 import rank
 
 
